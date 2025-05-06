@@ -198,7 +198,8 @@ export default function JobStatus({ jobId }: JobStatusProps) {
             <div className="flex justify-end">
               <Button asChild>
                 <a
-                  href={`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/renders/${jobData.output_path}`}
+                  href={jobData.output_path}
+                  className="flex items-center text-sm text-white bg-blue-500 hover:bg-blue-600 px-4 py-2 rounded"
                   download
                   target="_blank"
                   rel="noopener noreferrer"
