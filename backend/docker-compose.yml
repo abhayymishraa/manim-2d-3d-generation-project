@@ -1,0 +1,14 @@
+version: '3'
+
+services:
+  manim-api:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./renders:/content/renders
+    environment:
+      - ENV_FILE=.env
+
+volumes:
+  renders:
