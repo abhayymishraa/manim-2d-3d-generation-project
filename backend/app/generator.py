@@ -13,18 +13,18 @@ model = genai.GenerativeModel("models/gemini-2.0-flash")
 def extract_python_code(text: str) -> str:
     """Extract Python code from text that might contain markdown code blocks."""
     # Try to extract code from markdown code blocks
-    code_pattern = re.compile(r'```(?:python)?\s*([\s\S]*?)\s*```')
+    code_pattern = re.compile(r"```(?:python)?\s*([\s\S]*?)\s*```")
     matches = code_pattern.findall(text)
-    
+
     if matches:
-        return matches[0] 
-    
+        return matches[0]
+
     return text
 
 
 def generate_manim_code(prompt: str) -> str:
     """Generate Manim code using Gemini model with template context."""
-    
+
     context = """
     You are an expert in creating Manim animations. I need Python code using the Manim library to visualize mathematical concepts.
     
@@ -135,9 +135,9 @@ def generate_manim_code(prompt: str) -> str:
     
     Please generate ONLY the Python code needed to visualize the concept I'm about to describe.
     """
-    
+
     full_prompt = f"{context}\n\nConcept to visualize: {prompt}\n\nPlease provide only the Python code without any explanation:"
-    
+
     try:
         response = model.generate_content(full_prompt)
         code = extract_python_code(response.text.strip())
