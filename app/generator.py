@@ -1,44 +1,121 @@
-import google.generativeai as genai
 import re
 import logging
+from langchain_cohere import CohereEmbeddings, ChatCohere
 from .config import settings
+from langchain_core.messages import HumanMessage, AIMessage
+from langchain_core.prompts import (
+    ChatPromptTemplate,
+    MessagesPlaceholder,
+    SystemMessagePromptTemplate,
+    HumanMessagePromptTemplate,
+)
+from langchain_pinecone import PineconeVectorStore
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-genai.configure(api_key=settings.GEMINI_API_KEY)
-model = genai.GenerativeModel("models/gemini-2.0-flash")
+embedding = CohereEmbeddings(
+    model="embed-v4.0",
+    cohere_api_key=settings.COHERE_API_KEY,
+    user_agent="LangChain",
+)
+
+chat = ChatCohere(verbose=True, cohere_api_key=settings.COHERE_API_KEY)
+
+chat_history = []
+
+MAX_HISTORY_LENGTH = 20
+
+
+def add_message_to_history(message):
+    """Add a message to the global chat history and trim if needed."""
+    global chat_history
+    chat_history.append(message)
+    if len(chat_history) > MAX_HISTORY_LENGTH:
+        chat_history = chat_history[-MAX_HISTORY_LENGTH:]
 
 
 def extract_python_code(text: str) -> str:
     """Extract Python code from text that might contain markdown code blocks."""
-    # Try to extract code from markdown code blocks
     code_pattern = re.compile(r"```(?:python)?\s*([\s\S]*?)\s*```")
     matches = code_pattern.findall(text)
-
-    if matches:
-        return matches[0]
-
-    return text
+    return matches[0] if matches else text
 
 
 def generate_manim_code(prompt: str) -> str:
-    """Generate Manim code using Gemini model with template context."""
+    """Generate Manim code using Cohere model with improved retrieval context."""
+    add_message_to_history(HumanMessage(content=prompt))
 
-    context = """
-    You are an expert in creating Manim animations. I need Python code using the Manim library to visualize mathematical concepts.
+    query_enhancement_prompt = """
+    I need to search for relevant Manim documentation to help with a technical visualization request.
     
-    Please follow these guidelines:
-    1. Always include the proper imports from manim
-    2. Create a Scene or ThreeDScene class that inherits from the appropriate Manim class
-    3. The class should always be named 'Scene' for consistency
-    4. Define a construct method that builds the visualization step by step
-    5. Use appropriate animations like Create(), Write(), etc.
-    6. Keep the code simple, focused, and well-commented
-    7. Don't include any explanations or text outside of the Python code
-    8. Always include any necessary imports like numpy (as np) if you use them
+    Original request: {input}
     
-    Here are examples of good Manim code structure:
+    Convert this into a search query that would effectively retrieve Manim documentation by:
+    1. Identifying the core mathematical or visual concept (e.g., "vector field", "complex numbers", "graph theory")
+    2. Including specific Manim classes or methods if mentioned (e.g., "ValueTracker", "MathTex", "ThreeDScene")
+    3. Adding technical terms related to animation or visualization (e.g., "transformation", "coordinate system", "camera movement")
+    4. Using Manim-specific terminology where applicable
+    
+    Format the query as a comma-separated list of relevant terms. If the original request mentions a mathematical theorem, include both the theorem name and the mathematical domain.
+    
+    Enhanced search query:"""
+
+    try:
+        enhanced_query_response = chat.invoke(
+            input=query_enhancement_prompt.format(input=prompt)
+        )
+        enhanced_query = enhanced_query_response.content
+        logger.info(f"Enhanced search query: {enhanced_query}")
+
+        doc_search = PineconeVectorStore(
+            index_name=settings.PINECONE_INDEX_NAME,
+            embedding=embedding,
+            pinecone_api_key=settings.PINECONE_API_KEY,
+        )
+
+        retriever = doc_search.as_retriever(search_kwargs={"k": 5})
+
+        docs_original = retriever.get_relevant_documents(prompt)
+
+        docs_enhanced = retriever.get_relevant_documents(enhanced_query)
+
+        all_docs = docs_original + docs_enhanced
+        unique_docs = []
+        seen_content = set()
+
+        for doc in all_docs:
+            if doc.page_content not in seen_content:
+                seen_content.add(doc.page_content)
+                unique_docs.append(doc)
+
+        doc_contents = []
+        for doc in unique_docs[:7]:
+            doc_contents.append(doc.page_content)
+
+        context_text = "\n\n---\n\n".join(doc_contents)
+
+        logger.info(f"Retrieved {len(unique_docs)} unique relevant documents")
+
+        system_prompt = """
+You are an expert in creating Manim animations. Use the context below from the Manim documentation to generate Python code using the Manim library to visualize mathematical concepts.
+
+Follow these rules strictly:
+1. Always include proper imports from manim.
+2. Define a construct() method that builds the visualization step by step.
+3. Use animations like Create(), Write(), etc.
+4. Keep code simple, focused, and well-commented.
+5. Do NOT include explanations or text outside Python code.
+6. Include necessary imports like numpy as np if used.
+
+IMPORTANT: You must use class Name as Scene.
+Note can you give a typo inside the code actually for now i am testing the code so please make a type so manim command will fail in first run.
+
+
+CONTEXT FROM MANIM DOCUMENTATION:
+{context}
+
+Here are examples of good Manim code structure:
     
     Example 1 - Boolean operations visualization:
     ```python
@@ -78,31 +155,7 @@ def generate_manim_code(prompt: str) -> str:
             self.play(FadeIn(difference_text))
     ```
     
-    Example 2 - 3D visualization:
-    ```python
-    from manim import *
-    import numpy as np
-    
-    class Scene(ThreeDScene):
-        def construct(self):
-            # Set up 3D axes
-            axes = ThreeDAxes()
-            
-            # Create a sphere
-            sphere = Sphere(radius=1, resolution=(20, 20))
-            sphere.set_color(BLUE)
-            
-            # Set up the camera
-            self.set_camera_orientation(phi=75 * DEGREES, theta=30 * DEGREES)
-            
-            # Add to scene with animation
-            self.play(Create(axes))
-            self.play(Create(sphere))
-            self.begin_ambient_camera_rotation(rate=0.2)
-            self.wait(3)
-    ```
-    
-    Example 3 - Following a graph with the camera:
+    Example 2 - Following a graph with the camera:
     ```python
     from manim import *
     import numpy as np
@@ -133,16 +186,117 @@ def generate_manim_code(prompt: str) -> str:
             self.play(Restore(self.camera.frame))
     ```
     
-    Please generate ONLY the Python code needed to visualize the concept I'm about to describe.
+    Generate ONLY the Python code needed to visualize the concept described by the user.
     """
 
-    full_prompt = f"{context}\n\nConcept to visualize: {prompt}\n\nPlease provide only the Python code without any explanation:"
+        human_prompt = (
+            "Concept to visualize: {input}\n\nPlease provide only the Python code."
+        )
 
-    try:
-        response = model.generate_content(full_prompt)
-        code = extract_python_code(response.text.strip())
-        logger.info(f"Generated code for: {prompt[:30]}...")
+        chat_prompt = ChatPromptTemplate.from_messages(
+            [
+                SystemMessagePromptTemplate.from_template(system_prompt),
+                HumanMessagePromptTemplate.from_template(human_prompt),
+            ]
+        )
+
+        chat_prompt_value = chat_prompt.format_prompt(
+            input=prompt, context=context_text
+        )
+
+        response = chat.invoke(
+            input=chat_prompt_value.to_messages(),
+        )
+
+        logger.info(f"Generated response for prompt: {prompt[:30]}...")
+
+        code = extract_python_code(response.content)
         return code
+
     except Exception as e:
-        logger.error(f"Error generating code with Gemini: {str(e)}")
+        logger.error(f"Error generating code: {str(e)}")
         return f"# Error generating code: {str(e)}"
+
+
+def generate_code_with_history(conversation_history):
+    """
+    Generate improved Manim code using conversation history and error feedback.
+
+    Args:
+        conversation_history: List of HumanMessage and AIMessage instances
+
+    Returns:
+        str: Generated Python code
+    """
+    try:
+        original_prompt = conversation_history[0].content
+
+        doc_search = PineconeVectorStore(
+            index_name=settings.PINECONE_INDEX_NAME,
+            embedding=embedding,
+            pinecone_api_key=settings.PINECONE_API_KEY,
+        )
+
+        retriever = doc_search.as_retriever()
+        docs = retriever.get_relevant_documents(original_prompt)
+
+        doc_contents = [doc.page_content for doc in docs[:5]]
+        context_text = "\n\n---\n\n".join(doc_contents)
+
+        system_prompt = """
+You are an expert in debugging and fixing Manim animations. Given a conversation history that includes:
+1. The original concept request
+2. Previous code generation attempts
+3. Error messages from those attempts
+
+Your task is to fix the code to make it work correctly.
+
+Follow these rules strictly:
+1. Always include proper imports from manim.
+2. Define a construct() method that builds the visualization step by step.
+3. Use animations like Create(), Write(), etc.
+4. Keep code simple, focused, and well-commented.
+5. Do NOT include explanations or text outside Python code.
+6. Include necessary imports like numpy as np if used.
+7. ALWAYS use 'class Scene' as the class name.
+8. Carefully address the specific errors mentioned in the conversation history.
+
+Here's some relevant Manim documentation that might help:
+{context}
+
+Based on the conversation history, generate corrected Python code. Return ONLY the code, no explanations or markdown.
+"""
+
+        chat_prompt = ChatPromptTemplate.from_messages(
+            [
+                SystemMessagePromptTemplate.from_template(system_prompt),
+                MessagesPlaceholder(variable_name="history"),
+            ]
+        )
+
+        chat_prompt_value = chat_prompt.format_prompt(
+            context=context_text, history=conversation_history
+        )
+
+        response = chat.invoke(
+            input=chat_prompt_value.to_messages(),
+        )
+
+        logger.info("Generated improved code with error context")
+
+        code = extract_python_code(response.content)
+        return code
+
+    except Exception as e:
+        logger.error(f"Error generating improved code: {str(e)}")
+
+        last_code = None
+        for msg in reversed(conversation_history):
+            if isinstance(msg, AIMessage):
+                last_code = msg.content
+                break
+
+        if last_code:
+            return last_code
+        else:
+            return f"# Error generating improved code: {str(e)}"

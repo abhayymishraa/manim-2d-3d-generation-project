@@ -3,27 +3,26 @@ import logging
 import subprocess
 import tempfile
 import glob
-from datetime import datetime
+import shutil
 from .config import settings
 from .generator import generate_manim_code
 from .supabase_client import update_job_data, upload_to_supabase
+from langchain_core.messages import HumanMessage, AIMessage
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 RENDER_DIR = settings.RENDER_DIR
+MAX_ITERATIONS = 5
 
 
-def run_manim(
-    code: str, job_id: str, output_path: str, quality: str = "m"
-) -> tuple[bool, str]:
+def run_manim(code: str, temp_dir: str, quality: str = "m") -> tuple[bool, str]:
     """
-    Run Manim code and render the animation.
+    Run Manim code and render the animation in a temporary directory.
 
     Args:
         code: The Python code to render
-        job_id: Unique job identifier
-        output_path: Directory to save the rendered video
+        temp_dir: Directory to save the rendered video temporarily
         quality: Render quality (l=low, m=medium, h=high)
 
     Returns:
@@ -32,12 +31,9 @@ def run_manim(
 
     temp_path = None
     try:
-        job_output_dir = os.path.join(output_path, job_id)
-        os.makedirs(job_output_dir, exist_ok=True)
+        os.makedirs(temp_dir, exist_ok=True)
+        logger.info(f"Using temporary directory: {temp_dir}")
 
-        logger.info(f"Created job directory: {job_output_dir}")
-
-        # Create a temporary Python file with explicit cleanup
         try:
             with tempfile.NamedTemporaryFile(
                 suffix=".py", mode="w", delete=False
@@ -49,7 +45,6 @@ def run_manim(
             logger.error(f"Failed to create temporary file: {str(e)}")
             return False, f"Failed to create temporary file: {str(e)}"
 
-        # Run Manim command
         cmd = [
             "python",
             "-m",
@@ -58,12 +53,11 @@ def run_manim(
             "Scene",
             f"-q{quality}",
             "--format=mp4",
-            f"--media_dir={job_output_dir}",
+            f"--media_dir={temp_dir}",
         ]
 
         logger.info(f"Running command: {' '.join(cmd)}")
 
-        # Execute the command with timeout (4 minutes)
         try:
             process = subprocess.run(
                 cmd, capture_output=True, text=True, check=False, timeout=240
@@ -80,9 +74,11 @@ def run_manim(
             logger.error(f"Manim rendering failed with exit code {process.returncode}")
             return False, process.stderr
 
-        mp4_files = glob.glob(
-            os.path.join(job_output_dir, "**", "Scene.mp4"), recursive=True
-        )
+        mp4_files = [
+            f
+            for f in glob.glob(os.path.join(temp_dir, "**", "*.mp4"), recursive=True)
+            if "partial_movie_files" not in f
+        ]
         logger.info(f"Found MP4 files: {mp4_files}")
 
         if not mp4_files:
@@ -90,10 +86,9 @@ def run_manim(
             return False, "No MP4 file found after rendering"
 
         output_file = mp4_files[0]
-        rel_path = os.path.relpath(output_file, RENDER_DIR)
 
-        logger.info(f"Manim rendering completed successfully: {rel_path}")
-        return True, rel_path
+        logger.info(f"Manim rendering completed successfully: {output_file}")
+        return True, output_file
 
     except Exception as e:
         error_msg = f"Error running Manim: {str(e)}"
@@ -112,38 +107,122 @@ def run_manim(
 
 def process_rendering_job(job_id: str, prompt: str, quality: str):
     """
-    Process a rendering job from start to finish:
+    Process a rendering job from start to finish with iterative error correction:
     1. Generate Manim code
-    2. Run Manim to create animation
-    3. Upload result to Supabase
-    4. Clean up local files
+    2. Run Manim to create animation in a temp directory
+    3. If error occurs, try to fix up to MAX_ITERATIONS times
+    4. Upload successful result to Supabase
+    5. Clean up temp files
     """
-    try:
-        job_dir = os.path.join(RENDER_DIR, job_id)
-        os.makedirs(job_dir, exist_ok=True)
+    job_dir = os.path.join(RENDER_DIR, job_id)
+    os.makedirs(job_dir, exist_ok=True)
 
+    conversation_history = []
+    conversation_history.append(HumanMessage(content=prompt))
+
+    try:
         code = generate_manim_code(prompt)
+        conversation_history.append(AIMessage(content=code))
+
         code_path = os.path.join(job_dir, "code.py")
         with open(code_path, "w") as f:
             f.write(code)
 
-        logger.info(f"Starting Manim render for job {job_id}")
+        logger.info(f"Initial code generated for job {job_id}")
+    except Exception as e:
+        logger.error(f"Error generating initial code for job {job_id}: {str(e)}")
+        update_job_data(
+            job_id=job_id,
+            status="failed",
+            prompt=prompt,
+            message=f"Code generation failed: {str(e)}",
+        )
+        with open(os.path.join(job_dir, "status.txt"), "w") as f:
+            f.write(f"failed\nCode generation failed: {str(e)}")
+        return
 
-        success, result = run_manim(code, job_id, RENDER_DIR, quality)
-        logger.info(f"Manim render finished with success={success}")
+    success = False
+    result = ""
+    final_code = code
+    iteration = 0
 
-        status_path = os.path.join(job_dir, "status.txt")
+    while not success and iteration < MAX_ITERATIONS:
+        iteration += 1
+        logger.info(f"Starting iteration {iteration} for job {job_id}")
 
-        if success:
+        temp_iter_dir = tempfile.mkdtemp(prefix=f"manim_iter_{iteration}_")
 
+        try:
+
+            success, result = run_manim(final_code, temp_iter_dir, quality)
+
+            if success:
+                logger.info(f"Successful render on iteration {iteration}")
+
+                final_output_dir = os.path.join(job_dir, "media")
+                os.makedirs(final_output_dir, exist_ok=True)
+
+                rel_path = (
+                    os.path.relpath(result, RENDER_DIR)
+                    if RENDER_DIR in result
+                    else result
+                )
+
+                target_file = os.path.join(final_output_dir, os.path.basename(result))
+                shutil.copy2(result, target_file)
+
+                result = os.path.relpath(target_file, RENDER_DIR)
+                break
+            else:
+                if iteration < MAX_ITERATIONS:
+                    error_prompt = f"""
+The Manim code failed to render with the following error:
+```
+{result}
+```
+Please fix the code to address this error. Only respond with the complete, corrected code - no explanations.
+"""
+                    conversation_history.append(HumanMessage(content=error_prompt))
+
+                    try:
+                        from .generator import generate_code_with_history
+
+                        final_code = generate_code_with_history(conversation_history)
+                        conversation_history.append(AIMessage(content=final_code))
+
+                        with open(
+                            os.path.join(job_dir, f"code_iter_{iteration}.py"), "w"
+                        ) as f:
+                            f.write(final_code)
+
+                        with open(code_path, "w") as f:
+                            f.write(final_code)
+
+                        logger.info(f"Generated improved code in iteration {iteration}")
+                    except Exception as e:
+                        logger.error(f"Error generating improved code: {str(e)}")
+                        break
+        finally:
+            try:
+                shutil.rmtree(temp_iter_dir)
+                logger.info(f"Cleaned up temporary directory: {temp_iter_dir}")
+            except Exception as e:
+                logger.warning(
+                    f"Failed to clean up temporary directory {temp_iter_dir}: {str(e)}"
+                )
+
+    status_path = os.path.join(job_dir, "status.txt")
+
+    if success:
+        try:
             video_full_path = os.path.join(RENDER_DIR, result)
-            supabase_url = upload_to_supabase(job_id, video_full_path, code)
+            supabase_url = upload_to_supabase(job_id, video_full_path, final_code)
 
             update_job_data(
                 job_id=job_id,
                 status="completed",
                 prompt=prompt,
-                code=code,
+                code=final_code,
                 url=supabase_url,
             )
 
@@ -151,11 +230,7 @@ def process_rendering_job(job_id: str, prompt: str, quality: str):
                 f.write("completed\n")
                 f.write(supabase_url)
 
-            logger.info(f"Job {job_id} completed: {supabase_url}")
-
             try:
-                import shutil
-
                 shutil.rmtree(job_dir)
                 logger.info(f"Cleaned up local files for job {job_id}")
             except Exception as e:
@@ -163,30 +238,25 @@ def process_rendering_job(job_id: str, prompt: str, quality: str):
                     f"Failed to clean up local files for job {job_id}: {str(e)}"
                 )
 
-        else:
-            update_job_data(
-                job_id=job_id, status="failed", prompt=prompt, code=code, message=result
+            logger.info(
+                f"Job {job_id} completed after {iteration} iterations: {supabase_url}"
             )
-
+        except Exception as e:
+            logger.error(f"Error finalizing successful job {job_id}: {str(e)}")
             with open(status_path, "w") as f:
-                f.write(f"failed\n{result}")
+                f.write(f"failed\nError finalizing successful job: {str(e)}")
+    else:
+        update_job_data(
+            job_id=job_id,
+            status="failed",
+            prompt=prompt,
+            code=final_code,
+            message=f"Failed after {iteration} iterations. Last error: {result}",
+        )
 
-            logger.info(f"Job {job_id} failed: {result[:100]}")
-
-    except Exception as e:
-        logger.error(f"Error processing job {job_id}: {str(e)}")
-
-        job_dir = os.path.join(RENDER_DIR, job_id)
-        os.makedirs(job_dir, exist_ok=True)
-
-        try:
-            update_job_data(
-                job_id=job_id, status="failed", prompt=prompt, message=str(e)
-            )
-        except Exception as supabase_err:
-            logger.error(
-                f"Failed to update Supabase for job {job_id}: {str(supabase_err)}"
+        with open(status_path, "w") as f:
+            f.write(
+                f"failed\nFailed after {iteration} iterations. Last error: {result}"
             )
 
-        with open(os.path.join(job_dir, "status.txt"), "w") as f:
-            f.write(f"failed\n{str(e)}")
+        logger.info(f"Job {job_id} failed after {iteration} iterations: {result[:100]}")
