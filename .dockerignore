@@ -1,0 +1,36 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environment
+venv/
+
+
+# macOS files
+.DS_Store
+
+# Editor-specific files
+.vscode/
+.idea/
+manim-docs
+# Python packaging files
+*.egg-info/
+dist/
+build/
+
+# Logs and cache
+*.log
+*.cache
+*.tmp
+
+# Renders/output files
+renders/
+
+# Git
+.git/
+.gitignore
+
+# Misc
+*.swp
+
