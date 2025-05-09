@@ -108,10 +108,6 @@ Follow these rules strictly:
 5. Do NOT include explanations or text outside Python code.
 6. Include necessary imports like numpy as np if used.
 
-IMPORTANT: You must use class Name as Scene.
-Note can you give a typo inside the code actually for now i am testing the code so please make a type so manim command will fail in first run.
-
-
 CONTEXT FROM MANIM DOCUMENTATION:
 {context}
 
