@@ -74,7 +74,7 @@ def generate_manim_code(prompt: str) -> str:
             pinecone_api_key=settings.PINECONE_API_KEY,
         )
 
-        retriever = doc_search.as_retriever(search_kwargs={"k": 5})
+        retriever = doc_search.as_retriever()
 
         docs_original = retriever.get_relevant_documents(prompt)
 

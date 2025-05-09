@@ -44,6 +44,7 @@ def ingest_docs():
         preserve_videos=False,
     )
 
+
     html_chunks = []
     for doc in raw_documents:
         html_chunks.append(doc)
