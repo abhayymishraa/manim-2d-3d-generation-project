@@ -11,3 +11,4 @@ langchain-community==0.3.23
 langchain-cohere==0.4.4
 beautifulsoup4==4.13.4
 lxml==5.4.0
+numpy==2.2.5
