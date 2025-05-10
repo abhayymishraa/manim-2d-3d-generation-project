@@ -1,36 +1,36 @@
 FROM python:3.10-slim
 
-# Set working directory
+ENV DEBIAN_FRONTEND=noninteractive
+
 WORKDIR /app
 
-# Install system dependencies for Manim
-RUN apt-get update && apt-get install -y \
+# Install only necessary system packages for Manim
+RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     libcairo2-dev \
     libpango1.0-dev \
-    texlive \
-    texlive-fonts-extra \
     texlive-latex-recommended \
+    texlive-fonts-recommended \
     texlive-science \
     tipa \
     libffi-dev \
     git \
     build-essential \
     pkg-config \
-    && rm -rf /var/lib/apt/lists/*
+ && apt-get clean \
+ && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --upgrade pip \
+ && pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
 COPY . .
 
-# Create directory for renders
+# Create render directory with open permissions
 RUN mkdir -p /app/renders && chmod 777 /app/renders
 
-# Expose the port
 EXPOSE 8000
 
-# Start the application
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
