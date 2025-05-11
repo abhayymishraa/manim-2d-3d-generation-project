@@ -107,7 +107,10 @@ Follow these rules strictly:
 4. Keep code simple, focused, and well-commented.
 5. Do NOT include explanations or text outside Python code.
 6. Include necessary imports like numpy as np if used.
-7. Please do not use 'class Scene' as the main class name.
+7. Please do not use 'class Scene' as the main class name because it will conflict class Scene(Scene) and compiler throw error.
+
+Note: After generating the code, please cross verify the code works as expected with proper calling function and follows best practices for Manim animations.
+
 
 
 CONTEXT FROM MANIM DOCUMENTATION:
