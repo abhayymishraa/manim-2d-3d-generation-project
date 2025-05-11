@@ -154,6 +154,7 @@ def process_rendering_job(job_id: str, prompt: str, quality: str):
 
         try:
 
+            logger.info(f"Code for iteration {iteration}:\n{final_code}")
             success, result = run_manim(final_code, temp_iter_dir, quality)
 
             if success:
