@@ -175,6 +175,7 @@ def process_rendering_job(job_id: str, prompt: str, quality: str):
                 break
             else:
                 if iteration < MAX_ITERATIONS:
+                    logger.error(result)
                     error_prompt = f"""
 The Manim code failed to render with the following error:
 ```

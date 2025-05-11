@@ -259,7 +259,7 @@ Follow these rules strictly:
 4. Keep code simple, focused, and well-commented.
 5. Do NOT include explanations or text outside Python code.
 6. Include necessary imports like numpy as np if used.
-7. ALWAYS use 'class Scene' as the class name.
+7. Do Not use 'class Scene' as the class name.
 8. Carefully address the specific errors mentioned in the conversation history.
 
 Here's some relevant Manim documentation that might help:
