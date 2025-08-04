@@ -1,6 +1,5 @@
 import re
 import logging
-from langchain_cohere import CohereEmbeddings, ChatCohere
 from .config import settings
 from langchain_core.messages import HumanMessage, AIMessage
 from langchain_core.prompts import (
@@ -10,17 +9,21 @@ from langchain_core.prompts import (
     HumanMessagePromptTemplate,
 )
 from langchain_pinecone import PineconeVectorStore
+from langchain_google_genai import GoogleGenerativeAIEmbeddings, ChatGoogleGenerativeAI
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-embedding = CohereEmbeddings(
-    model="embed-v4.0",
-    cohere_api_key=settings.COHERE_API_KEY,
-    user_agent="LangChain",
+embedding = GoogleGenerativeAIEmbeddings(
+    model="models/embedding-001", 
+    google_api_key=settings.GOOGLE_API_KEY
 )
 
-chat = ChatCohere(verbose=True, cohere_api_key=settings.COHERE_API_KEY)
+chat = ChatGoogleGenerativeAI(
+    model="models/gemini-2.5-pro", 
+    google_api_key=settings.GOOGLE_API_KEY,
+    temperature=0.7
+)
 
 chat_history = []
 
