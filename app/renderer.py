@@ -54,14 +54,14 @@ def run_manim(code: str, temp_dir: str, quality: str = "m") -> tuple[bool, str]:
             f"-q{quality}",
             "--format=mp4",
             f"--media_dir={temp_dir}",
+            "--renderer=cairo",
         ]
 
         logger.info(f"Running command: {' '.join(cmd)}")
 
         try:
             process = subprocess.run(
-                cmd, capture_output=True, text=True, check=False, timeout=240
-            )
+                cmd, capture_output=True, text=True, check=False)
 
         except subprocess.TimeoutExpired:
             logger.error("Manim rendering timed out after 240 seconds")

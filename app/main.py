@@ -54,6 +54,7 @@ async def root():
     """Root endpoint for health check."""
     return {
         "status": "ok",
+        "message": "Welcome to the Manim API! v1",
         "service": settings.APP_NAME,
         "version": settings.APP_VERSION,
     }
