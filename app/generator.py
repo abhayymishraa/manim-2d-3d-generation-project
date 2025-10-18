@@ -14,13 +14,14 @@ from langchain_google_genai import GoogleGenerativeAIEmbeddings, ChatGoogleGener
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-embedding = GoogleGenerativeAIEmbeddings(
-    model="models/embedding-001", 
-    google_api_key=settings.GOOGLE_API_KEY
-)
+# embedding = GoogleGenerativeAIEmbeddings(
+#     model="models/gemini-embedding-001", 
+#     google_api_key=settings.GOOGLE_API_KEY,
+#     dimension=768
+# )
 
 chat = ChatGoogleGenerativeAI(
-    model="models/gemini-2.5-pro", 
+    model="models/gemini-2.5-flash", 
     google_api_key=settings.GOOGLE_API_KEY,
     temperature=0.7
 )
@@ -71,37 +72,37 @@ def generate_manim_code(prompt: str) -> str:
         enhanced_query = enhanced_query_response.content
         logger.info(f"Enhanced search query: {enhanced_query}")
 
-        doc_search = PineconeVectorStore(
-            index_name=settings.PINECONE_INDEX_NAME,
-            embedding=embedding,
-            pinecone_api_key=settings.PINECONE_API_KEY,
-        )
+        # doc_search = PineconeVectorStore(
+        #     index_name=settings.PINECONE_INDEX_NAME,
+        #     embedding=embedding,
+        #     pinecone_api_key=settings.PINECONE_API_KEY,
+        # )
 
-        retriever = doc_search.as_retriever()
+        # retriever = doc_search.as_retriever()
 
-        docs_original = retriever.get_relevant_documents(prompt)
+        # docs_original = retriever.get_relevant_documents(prompt)
 
-        docs_enhanced = retriever.get_relevant_documents(enhanced_query)
+        # docs_enhanced = retriever.get_relevant_documents(enhanced_query)
 
-        all_docs = docs_original + docs_enhanced
-        unique_docs = []
-        seen_content = set()
+        # all_docs = docs_original + docs_enhanced
+        # unique_docs = []
+        # seen_content = set()
 
-        for doc in all_docs:
-            if doc.page_content not in seen_content:
-                seen_content.add(doc.page_content)
-                unique_docs.append(doc)
+        # for doc in all_docs:
+        #     if doc.page_content not in seen_content:
+        #         seen_content.add(doc.page_content)
+        #         unique_docs.append(doc)
 
-        doc_contents = []
-        for doc in unique_docs[:7]:
-            doc_contents.append(doc.page_content)
+        # doc_contents = []
+        # for doc in unique_docs[:7]:
+        #     doc_contents.append(doc.page_content)
 
-        context_text = "\n\n---\n\n".join(doc_contents)
+        # context_text = "\n\n---\n\n".join(doc_contents)
 
-        logger.info(f"Retrieved {len(unique_docs)} unique relevant documents")
+        # logger.info(f"Retrieved {len(unique_docs)} unique relevant documents")
 
         system_prompt = """
-You are an expert in creating Manim animations. Use the context below from the Manim documentation to generate Python code using the Manim library to visualize mathematical concepts.
+You are an expert in creating Manim animations. Use the context from the Manim documentation to generate Python code using the Manim library to visualize mathematical concepts.
 
 Follow these rules strictly:
 1. Always include proper imports from manim.
@@ -114,10 +115,6 @@ Follow these rules strictly:
 
 Note: After generating the code, please cross verify the code works as expected with proper calling function and follows best practices for Manim animations.
 
-
-
-CONTEXT FROM MANIM DOCUMENTATION:
-{context}
 
 Here are examples of good Manim code structure:
     
@@ -204,9 +201,7 @@ Here are examples of good Manim code structure:
             ]
         )
 
-        chat_prompt_value = chat_prompt.format_prompt(
-            input=prompt, context=context_text
-        )
+        chat_prompt_value = chat_prompt.format_prompt(input=prompt)
 
         response = chat.invoke(
             input=chat_prompt_value.to_messages(),
@@ -235,17 +230,17 @@ def generate_code_with_history(conversation_history):
     try:
         original_prompt = conversation_history[0].content
 
-        doc_search = PineconeVectorStore(
-            index_name=settings.PINECONE_INDEX_NAME,
-            embedding=embedding,
-            pinecone_api_key=settings.PINECONE_API_KEY,
-        )
+        # doc_search = PineconeVectorStore(
+        #     index_name=settings.PINECONE_INDEX_NAME,
+        #     embedding=embedding,
+        #     pinecone_api_key=settings.PINECONE_API_KEY,
+        # )
 
-        retriever = doc_search.as_retriever()
-        docs = retriever.get_relevant_documents(original_prompt)
+        # retriever = doc_search.as_retriever()
+        # docs = retriever.get_relevant_documents(original_prompt)
 
-        doc_contents = [doc.page_content for doc in docs[:5]]
-        context_text = "\n\n---\n\n".join(doc_contents)
+        # doc_contents = [doc.page_content for doc in docs[:5]]
+        # context_text = "\n\n---\n\n".join(doc_contents)
 
         system_prompt = """
 You are an expert in debugging and fixing Manim animations. Given a conversation history that includes:
@@ -265,9 +260,6 @@ Follow these rules strictly:
 7. Do Not use 'class Scene' as the class name.
 8. Carefully address the specific errors mentioned in the conversation history.
 
-Here's some relevant Manim documentation that might help:
-{context}
-
 Based on the conversation history, generate corrected Python code. Return ONLY the code, no explanations or markdown.
 """
 
@@ -278,9 +270,7 @@ Based on the conversation history, generate corrected Python code. Return ONLY t
             ]
         )
 
-        chat_prompt_value = chat_prompt.format_prompt(
-            context=context_text, history=conversation_history
-        )
+        chat_prompt_value = chat_prompt.format_prompt( history=conversation_history)
 
         response = chat.invoke(
             input=chat_prompt_value.to_messages(),

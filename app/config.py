@@ -23,9 +23,11 @@ class Settings(BaseSettings):
     LANGCHAIN_PROJECT: Optional[str] = os.getenv("LANGCHAIN_PROJECT")
     COHERE_API_KEY: Optional[str] = os.getenv("COHERE_API_KEY")
 
-    class Config:
-        env_file = ".env"
-        case_sensitive = True
+    model_config = {
+        "env_file": ".env",
+        "case_sensitive": True,
+        "extra": "ignore",
+    }
 
 
 settings = Settings()
